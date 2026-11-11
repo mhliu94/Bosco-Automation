@@ -2,7 +2,7 @@
 
 An emulator-free BSL Securities worker that speaks the same KTrader Kafka command and reporting contracts as [GigaMoney-Automation-Linux](https://github.com/mhliu94/GigaMoney-Automation-Linux). The runtime connects directly to the BSL broker and Kafka. It needs no phone, ADB, Frida, emulator, browser, or monitor server after enrollment.
 
-This implementation targets the native protocol inspected in BSL Android `com.tsci.hms` version **1.0.6**. Authentication, account reads, and Kafka connectivity have been checked against the WJY account. **Live order submission, fills, cancellation, and nonempty position/order mapping have not been verified against this account.** The corresponding code is covered by offline tests. Linux execution still needs verification on the deployment host; development tests ran on Windows with Python 3.12.
+This implementation targets the native protocol inspected in BSL Android `com.tsci.hms` version **1.0.6**. Authentication, account reads, and Kafka connectivity have been checked against the WJY account. **Live order submission, fills, cancellation, and nonempty position/order mapping have not been verified against this account.** The corresponding code is covered by offline tests, which pass on Linux and Windows with Python 3.12. Live broker execution still needs verification on the Linux deployment host.
 
 ## Implemented workflows
 
@@ -110,6 +110,6 @@ If the broker revokes/expires the reconnect session, the worker stops intake and
 .venv/bin/python -m pytest -q
 ```
 
-Tests use synthetic credentials and in-memory broker/Kafka doubles. They include encrypted handshake/framing, request matching, authentication before a durable send marker, lost replies, exact-ID cancellation, pagination, calendar boundaries, no-replay recovery, holdings, and KTrader status schemas. The CI workflow defines Linux and Windows jobs; it has not been run remotely during this task.
+Tests use synthetic credentials and in-memory broker/Kafka doubles. They include encrypted handshake/framing, request matching, authentication before a durable send marker, lost replies, exact-ID cancellation, pagination, calendar boundaries, no-replay recovery, holdings, and KTrader status schemas. The [initial worker's CI run](https://github.com/mhliu94/Bosco-Automation/actions/runs/42946552571) passed on Linux and Windows: 158 tests and 96 subtests per platform.
 
 See [docs/KAFKA.md](docs/KAFKA.md) for messages and [NOTICE.md](NOTICE.md) for source attribution. The source archive excludes account credentials, captured broker traffic, APK/decompiled app files, reference checkout, and the development virtual environment.
