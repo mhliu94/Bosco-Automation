@@ -1,0 +1,70 @@
+{
+  "paths": {
+    "workDir": "state",
+    "logDir": "logs"
+  },
+  "logging": {
+    "level": "INFO"
+  },
+  "api": {
+    "sessionPath": "credentials.json",
+    "maxOrderPages": 100,
+    "orderActionDelaySeconds": 5,
+    "postOrderPublishDelaySeconds": 2,
+    "fokWaitSeconds": 2,
+    "positionCost": "diluted",
+    "orderTimezone": "America/New_York",
+    "extendedHoursMarketOrders": true,
+    "marketStatusMaxAgeSeconds": 30,
+    "requestTimeoutSeconds": 15,
+    "maxResponseBytes": 4194304,
+    "readAttempts": 2,
+    "readRetryDelaySeconds": 0.25,
+    "cancelPollDelaysSeconds": [
+      0,
+      1,
+      1,
+      2
+    ],
+    "brokerTimezone": "Asia/Hong_Kong",
+    "pageSize": 100
+  },
+  "service": {
+    "name": "bosco-runner",
+    "restartSeconds": 10
+  },
+  "automation": {
+    "lockTimeoutSeconds": 300,
+    "maxCancelCount": 50
+  },
+  "kafka": {
+    "bootstrapServers": "",
+    "commandTopic": "trading-commands",
+    "accountDetailsTopic": "account-details",
+    "orderStatusTopic": "order-status",
+    "consumerGroupId": "",
+    "priceBooksTopic": "price-books",
+    "priceBookMaxAgeSeconds": 300,
+    "priceBookPollIntervalSeconds": 30,
+    "priceBookLookbackSeconds": 3600,
+    "priceBookTimeoutSeconds": 30,
+    "priceBookBatchSize": 500,
+    "autoOffsetReset": "latest",
+    "pollTimeoutSeconds": 1,
+    "maxPollIntervalMilliseconds": 900000,
+    "maxCommandAgeSeconds": 300,
+    "commitFailedCommands": true,
+    "holdingsIntervalSeconds": 30,
+    "sessionTimeoutMilliseconds": 10000,
+    "deliveryTimeoutSeconds": 10,
+    "producerLingerMilliseconds": 5,
+    "clientConfig": {}
+  },
+  "bosco": {
+    "backend": "api",
+    "tradePassword": "",
+    "accountId": "",
+    "accountNumId": null,
+    "tradingEnabledDefault": true
+  }
+}

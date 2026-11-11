@@ -218,3 +218,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Bosco local credentials, runtime state, and development artifacts
+.reference/
+.venv/
+work/
+logs/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+config/*.json
+!config/*.example.json
+.env
+dist/
+build/
+credentials.json
+password.txt
+passwords.txt
+state/

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bosco-automation-linux"
+version = "0.1.0"
+description = "Emulator-free Bosco Securities worker with KTrader Kafka contracts"
+requires-python = ">=3.10"
+dependencies = ["cryptography>=46", "confluent-kafka>=2.5", "exchange-calendars>=4.11,<5", "pandas>=2.2,<3", "portalocker>=3,<4", "tzdata>=2026.1"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "jsonschema>=4.18"]
+enroll = ["frida>=17,<18", "frida-tools>=14,<15"]
+
+[project.scripts]
+bosco = "bosco.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["bosco*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
