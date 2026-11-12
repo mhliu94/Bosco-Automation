@@ -157,6 +157,39 @@ def test_read_renewal_rejects_wrong_identity_without_overwriting_session(client,
     with pytest.raises(AuthenticationRequired):client._request('query_account')
     assert client.settings.session_path.read_bytes()==before
 
+def test_repeated_kick_during_cooldown_waits_then_relogs_in(client, monkeypatch, tmp_path):
+    import bosco.api as module
+    from bosco.api import SessionRenewalDeferred
+    from unittest.mock import Mock
+    clock=[10.0];monkeypatch.setattr(module.time,'monotonic',lambda:clock[0])
+    password=tmp_path/'passwords.txt';password.write_text('account_password=synthetic-login\ntrading_password=synthetic-trade\n')
+    client.settings.data['api'].update(passwordFile=str(password),deviceOsVersion='16')
+    login=ET.fromstring('<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account><session>renewed</session><internet_session>renewed-internet</internet_session><internet_expiry_time>2099/01/01 00:00:00</internet_expiry_time></login_response>')
+    ok=ET.Element('query_response');client.connection.connect=Mock()
+    client.connection.request=Mock(side_effect=[AuthenticationRequired('kickoff'),login,ok,AuthenticationRequired('second kickoff'),AuthenticationRequired('expired'),login,ok])
+    marker=client.settings.work_dir/'api/authentication.json';save_session(marker,{'state':'authentication_required'})
+    assert client._request('query_account') is ok
+    assert not marker.exists()
+    clock[0]=42
+    with pytest.raises(SessionRenewalDeferred) as error:client._request('query_account')
+    assert error.value.retry_after==28
+    calls=client.connection.request.call_count
+    with pytest.raises(SessionRenewalDeferred):client._request('query_account')
+    assert client.connection.request.call_count==calls
+    clock[0]=71
+    assert client._request('query_account') is ok
+    assert [call.args[0] for call in client.connection.request.call_args_list].count('login')==2
+
+def test_kick_immediately_after_successful_login_is_retryable(client, monkeypatch, tmp_path):
+    from bosco.api import SessionRenewalDeferred
+    from unittest.mock import Mock
+    password=tmp_path/'passwords.txt';password.write_text('account_password=synthetic-login\ntrading_password=synthetic-trade\n')
+    client.settings.data['api'].update(passwordFile=str(password),deviceOsVersion='16')
+    login=ET.fromstring('<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account><session>renewed</session><internet_session>renewed-internet</internet_session><internet_expiry_time>2099/01/01 00:00:00</internet_expiry_time></login_response>')
+    client.connection.connect=Mock();client.connection.request=Mock(side_effect=[AuthenticationRequired('expired'),login,AuthenticationRequired('kickoff')])
+    with pytest.raises(SessionRenewalDeferred):client._request('query_account')
+    assert client.connection.request.call_count==3
+
 @pytest.mark.parametrize('response',[
     '<login_response><user_id>OTHER</user_id><default_account>TEST-A</default_account></login_response>',
     '<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account></login_response>',

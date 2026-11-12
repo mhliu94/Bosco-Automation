@@ -168,6 +168,7 @@ class TradingRunner:
         self.lock_path = settings.work_dir / "operation.lock"
         self.lock_timeout = float(settings.get("automation.lockTimeoutSeconds", 300))
         self.running = True
+        self.authentication_failed = False
         import threading
         from .account_delta import AccountDeltaPublisher
         self._account_deltas = AccountDeltaPublisher(clock=lambda: time.monotonic())
@@ -318,6 +319,7 @@ class TradingRunner:
             "message": str(error),
         })
         self.running = False
+        self.authentication_failed = True
         LOG.error("Runner stopped intake: authentication_required. %s", error)
 
     def _run_kafka(self) -> None:

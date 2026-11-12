@@ -2,7 +2,7 @@
 import logging
 import threading
 import time
-from .api import AuthenticationRequired
+from .api import AuthenticationRequired, SessionRenewalDeferred
 from .api_trading import ApiTrading
 from .account_delta import OrderChanges
 
@@ -32,6 +32,10 @@ class DeltaOrderMonitor:
                 if self.changes.observe(result['orders']):
                     self.runner.request_holdings_refresh()
                 self.runner._publish_orders(self.producer, result['orders'])
+            except SessionRenewalDeferred as error:
+                LOG.warning('Broker session renewal deferred retry_after_s=%.1f; monitoring will resume.',error.retry_after)
+                self.stop.wait(max(.05,error.retry_after))
+                continue
             except AuthenticationRequired as error:
                 self.runner._authentication_required(error)
                 return

@@ -81,7 +81,7 @@ def main(argv=None):
                 try: runner.run()
                 finally:
                     if runner.api_executor: runner.api_executor.client.close()
-                return 3 if (settings.work_dir/'api/authentication.json').exists() else 0
+                return 3 if runner.authentication_failed else 0
         elif command in ('session-check','authenticate'):
             client=ApiClient(settings)
             with OperationLock(settings.work_dir/'api/operation.lock'):

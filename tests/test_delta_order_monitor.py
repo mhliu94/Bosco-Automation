@@ -26,3 +26,19 @@ def test_partial_fill_wakes_holdings_before_delivery_and_retries_transient_read(
     monitor.run()
     assert ordered == ['assets', 'orders', 'assets', 'orders', 'orders']
     assert len(waits) == 4 and all(.05 <= delay <= 1 for delay in waits)
+
+def test_session_cooldown_keeps_monitor_alive_and_recovers(monkeypatch):
+    from bosco.api import SessionRenewalDeferred
+    runner=Mock(settings={},running=True,stop_path=Path('nonexistent-stop-file'))
+    api=Mock();api.poll_order_status.side_effect=[SessionRenewalDeferred(28),{'orders':[]}]
+    monkeypatch.setattr(module,'ApiTrading',lambda settings:api)
+    monitor=DeltaOrderMonitor(runner,Mock());waits=[]
+    def wait(delay):
+        waits.append(delay)
+        if len(waits)==2:monitor.stop.set()
+    monkeypatch.setattr(monitor.stop,'wait',wait)
+    monitor.run()
+    assert waits[0]==28 and api.poll_order_status.call_count==2
+    runner._authentication_required.assert_not_called()
+    runner._publish_orders.assert_called_once()
+    assert runner.running

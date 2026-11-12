@@ -60,3 +60,10 @@ expired login with a 60-second cooldown. The returned user/account identity is
 checked before credentials are replaced. Dispatched financial requests are never
 replayed by renewal. Commands, holdings, and order polling share a serialized
 native connection so concurrent reconnects do not compete for the session.
+
+Repeated session revocations during the cooldown are transient: reads defer until
+the remaining cooldown elapses, then re-login automatically. The order monitor
+stays alive and its wait is interruptible on shutdown. Invalid login credentials,
+account-identity mismatches, or additional verification still stop intake.
+A successful broker read clears stale authentication-error state. The CLI reports
+authentication failure from the current run rather than an old marker file.

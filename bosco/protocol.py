@@ -17,6 +17,11 @@ from cryptography.hazmat.primitives import padding
 class SessionError(RuntimeError): pass
 class AuthenticationRequired(SessionError): pass
 class TransportError(SessionError): pass
+class SessionRenewalDeferred(TransportError):
+    """A valid login was recently replaced; retry reads after a bounded delay."""
+    def __init__(self, retry_after):
+        self.retry_after=max(0.0,float(retry_after))
+        super().__init__('Broker session renewal is cooling down; automatic retry remains enabled.')
 
 @dataclass
 class ApiResult:

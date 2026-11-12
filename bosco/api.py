@@ -15,7 +15,7 @@ def serialized(method):
     return call
 
 from .protocol import (Connection, ApiResult, ApiError, SessionError,
-                       AuthenticationRequired, TransportError)
+                       AuthenticationRequired, TransportError, SessionRenewalDeferred)
 from .storage import save_session
 from .mapping import order, position, numeric, broker_time
 from .market import market_session
@@ -35,6 +35,7 @@ class ApiClient:
     def __init__(self, settings, *, connection_factory=Connection):
         self._connection_lock=threading.RLock()
         self._last_renewal_attempt=float("-inf")
+        self._retry_not_before=0.0
         self.settings=settings
         self.state=load_session(settings.session_path)
         if self.state['account_id']!=settings.require('bosco.accountId'):
@@ -56,6 +57,8 @@ class ApiClient:
         return {'aaid':self.state['user_id'], 'org_id':'HMS','account_channel':self.state['account_number']}
 
     def _ensure(self):
+        remaining=self._retry_not_before-time.monotonic()
+        if remaining>0:raise SessionRenewalDeferred(remaining)
         if self.connection.socket is None:
             latest=load_session(self.settings.session_path)
             if any(latest.get(k)!=self.state.get(k) for k in ('user_id','account_number','account_id','account_num_id')):
@@ -71,8 +74,12 @@ class ApiClient:
         from .enrollment import read_passwords
         password_file=self.settings.get('api.passwordFile')
         os_version=self.settings.get('api.deviceOsVersion')
-        if not password_file or not os_version or time.monotonic()-self._last_renewal_attempt<60:
-            raise AuthenticationRequired('Session renewal needs private login configuration or cooldown.')
+        if not password_file or not os_version:
+            raise AuthenticationRequired('Session renewal needs private login configuration.')
+        remaining=60-(time.monotonic()-self._last_renewal_attempt)
+        if remaining>0:
+            self._retry_not_before=time.monotonic()+remaining
+            raise SessionRenewalDeferred(remaining)
         self._last_renewal_attempt=time.monotonic()
         with OperationLock(self.settings.work_dir/'api/session-renewal.lock',30):
             latest=load_session(self.settings.session_path)
@@ -103,10 +110,20 @@ class ApiClient:
     def _request(self, tag, fields=None, extra=None, attributes=None):
         try:
             self._ensure()
-            return self.connection.request(tag,fields,extra,attributes)
+            result=self.connection.request(tag,fields,extra,attributes)
         except AuthenticationRequired:
+            self.connection.close()
             self._renew_read_session()
-            return self.connection.request(tag,fields,extra,attributes)
+            try:
+                result=self.connection.request(tag,fields,extra,attributes)
+            except AuthenticationRequired:
+                self.connection.close()
+                self._retry_not_before=max(time.monotonic()+1,self._last_renewal_attempt+60)
+                raise SessionRenewalDeferred(self._retry_not_before-time.monotonic()) from None
+        self._retry_not_before=0.0
+        # Remove a stale failure marker only after a broker-verified read.
+        (self.settings.work_dir/'api/authentication.json').unlink(missing_ok=True)
+        return result
 
     def _rows(self, tag, fields=None, extra=None):
         result=[]
