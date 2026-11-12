@@ -241,6 +241,10 @@ class ApiClient:
         identifier=body['order_id_str']
         # Refresh before cancel so all fields belong to this exact account/order.
         row=self.read('order_detail',{'order_id_str':identifier}).payload['data']['order']['native']
+        # The read can renew the login and invalidate the earlier trading token.
+        # Authenticate again before the cancellation's durable dispatch marker.
+        self._trade_ready()
+        extra['trade_session']=self.state['trade_session']
         fields={k:row[k] for k in ('market_code','stock_code','order_side','trade_type','order_qty','order_price','order_time','related_order_id') if row.get(k)}
         fields.update(order_id=identifier,terminal_type='ANDROID',ccy_code=row.get('ccy','USD'))
         extra.update({k:row[k] for k in ('extended_trading','order_txn_reference','orderdate','sys_date','consign_id','orderGroupID') if row.get(k)})

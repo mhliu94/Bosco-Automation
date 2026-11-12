@@ -111,6 +111,18 @@ def test_cash_missing_actual_balance_cannot_fall_back_to_converted_value(client)
     client.connection.pages['currency']=[rows_response([{'ccy_code':'HKD','static_cash_by_rate':'780'}])]
     with pytest.raises(KeyError):client.read('cash')
 
+def test_cancel_uses_the_trading_token_after_detail_read_renewal(client, monkeypatch):
+    from bosco.protocol import ApiResult
+    monkeypatch.setattr(client,'_trade_ready',lambda:None)
+    client.state['trade_session']='before-read'
+    def detail(*args,**kwargs):
+        client.state['trade_session']='after-read'
+        return ApiResult('order_detail',200,0,0,'',{'data':{'order':{'native':native_order()}}})
+    monkeypatch.setattr(client,'read',detail)
+    client.write('withdraw',{'order_id_str':'BSL-9007199254740993123'},before_send=lambda:None)
+    assert client.connection.calls[-1][0]=='cancel_order'
+    assert client.connection.calls[-1][2]['trade_session']=='after-read'
+
 def test_read_authentication_renews_once_without_replaying_writes(client, monkeypatch, tmp_path):
     from unittest.mock import Mock
     password=tmp_path/'passwords.txt'
