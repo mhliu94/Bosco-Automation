@@ -91,7 +91,7 @@ The generator uses the current Python executable and config's absolute Linux pat
 | `paths.workDir` | `../work/bosco-wjy/state` |
 | `paths.logDir` | `../logs/bosco-wjy` |
 
-Default timings match the reference: 5 seconds before an order/cancel operation, 2 seconds before post-order reporting, 2 seconds before a synthetic FOK cancellation, 30-second holdings interval, and 300-second maximum command age. Read failures receive at most two attempts. Price-book snapshots expire after 300 seconds. `automation.maxCancelCount` defaults to 50 per cancel-all call.
+Default pre-action delay is 0 seconds and remains configurable through `api.orderActionDelaySeconds`; the other timings are 2 seconds before post-order reporting, 2 seconds before a synthetic FOK cancellation, 30-second holdings interval, and 300-second maximum command age. Read failures receive at most two attempts. Price-book snapshots expire after 300 seconds. `automation.maxCancelCount` defaults to 50 per cancel-all call.
 
 `api.positionCost` chooses `diluted` (`cost_price`) or `average` (`avg_price`). Native daily P/L fields are optional; see the protocol notes. `api.brokerTimezone` defaults to `Asia/Hong_Kong` for native timestamps; `api.orderTimezone` is `America/New_York` for the daily reporting boundary.
 
