@@ -57,6 +57,12 @@ def command_plan(command: dict[str, Any]) -> CommandPlan:
             "side": OrderAutomation.normalize_side(str(command.get("side", ""))),
             "kill": kill,
         })
+    if command_type == "CANCEL_ORDER":
+        identifier = command.get("order_id")
+        if (not isinstance(identifier, str) or not identifier or identifier != identifier.strip()
+                or len(identifier) > 256 or any(ord(c) < 32 for c in identifier)):
+            raise ValueError("CANCEL_ORDER requires an exact broker order_id.")
+        return CommandPlan("cancel", "cancel one order", {"identifier": identifier})
     if command_type == "CANCEL_OPEN_ORDERS":
         return CommandPlan("cancel", "cancel all orders", {})
     if command_type == "SET_TRADING_ENABLED":
@@ -220,6 +226,8 @@ class TradingRunner:
                 self.api_executor = ApiTrading(self.settings)
             method = {"market": "market_order", "limit": "limit_order", "cancel": "cancel_all",
                       "holdings": "query", "recover": "recover_pending", "reject": "record_rejection"}.get(kind)
+            if kind == "cancel" and "identifier" in arguments:
+                method = "cancel_order"
             if method is None:
                 raise ValueError(f"Unknown operation: {kind}")
             if kind == "holdings" and self.order_monitor is not None:
