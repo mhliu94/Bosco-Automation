@@ -257,8 +257,14 @@ class ApiTrading:
                  sum(tracking.terminal(identifier) for identifier in tracking.data["snapshots"]), errors)
         return snapshots, errors
 
+    def poll_order_status(self):
+        with OperationLock(self.directory / 'order-polling.lock',
+                           float(self.settings.get('automation.lockTimeoutSeconds', 300))):
+            snapshots, errors = self._order_snapshots(datetime.now(timezone.utc))
+        return {'orders': snapshots, 'orderStatusErrors': errors}
+
     @logged_workflow
-    def query(self) -> dict:
+    def query(self, *, include_orders=True) -> dict:
         with self._lock():
             workflow_attempt(1)
             workflow_step("read_positions")
@@ -319,6 +325,9 @@ class ApiTrading:
                     or any(str(part.get("account_channel", "")) != context["account_channel"] for part in (data, cash))
                     or len({row["currency"] for row in balances}) != len(balances)):
                 raise ValueError("Cash and positions belong to different accounts.")
+            if not include_orders:
+                return {"queriedAt": datetime.now(timezone.utc).isoformat(),
+                        "cash": {"balances": balances}, "positions": positions, "orders": []}
             workflow_step("read_today_orders")
             observed = datetime.now(timezone.utc)
             try:
