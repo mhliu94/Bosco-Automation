@@ -77,6 +77,47 @@ def client(tmp_path):
            {'trading_password': 'synthetic-password'}, config_path=config)
     return ApiClient(load_settings(config), connection_factory=NativePeer)
 
+def test_explicit_session_renewal_validates_identity_and_does_not_store_login_password(client):
+    from unittest.mock import Mock
+    from bosco.enrollment import renew_session
+    connection=Mock()
+    connection.request.return_value=ET.fromstring('<login_response><user_id>TEST</user_id>'
+        '<default_account>TEST-A</default_account><session>renewed</session>'
+        '<internet_session>renewed-internet</internet_session><internet_expiry_time>2099/01/01 00:00:00</internet_expiry_time></login_response>')
+    result=renew_session(client.settings,'synthetic-login-secret','16',connection_factory=lambda state:connection)
+    assert result=={'account_id':'BOSCO-TEST','session_renewed':True}
+    connection.connect.assert_called_once_with(reconnect=False)
+    assert connection.request.call_args.args[0]=='login'
+    assert connection.request.call_args.args[1]['encoding']=='UTF8'
+    assert connection.request.call_args.args[2]['new_version']=='1'
+    raw=client.settings.session_path.read_text()
+    assert 'synthetic-login-secret' not in raw
+    assert json.loads(raw)['session']=='renewed'
+    connection.close.assert_called_once()
+
+@pytest.mark.parametrize('response',[
+    '<login_response><user_id>OTHER</user_id><default_account>TEST-A</default_account></login_response>',
+    '<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account></login_response>',
+])
+def test_invalid_renewal_does_not_replace_credentials(client,response):
+    from unittest.mock import Mock
+    from bosco.enrollment import renew_session
+    connection=Mock();connection.request.return_value=ET.fromstring(response)
+    before=client.settings.session_path.read_bytes()
+    with pytest.raises(ValueError):renew_session(client.settings,'synthetic-password','16',connection_factory=lambda state:connection)
+    assert client.settings.session_path.read_bytes()==before
+    connection.close.assert_called_once()
+
+def test_renewal_refuses_to_interrupt_running_worker(client):
+    from unittest.mock import Mock
+    from bosco.enrollment import renew_session
+    from bosco.lock import OperationLock
+    from bosco.errors import SafetyError
+    factory=Mock()
+    with OperationLock(client.settings.work_dir/'runner.lock',0):
+        with pytest.raises(SafetyError):renew_session(client.settings,'synthetic-password','16',connection_factory=factory)
+    factory.assert_not_called()
+
 
 @pytest.mark.parametrize('kind,price,trade_type,extended', [('LO', '12.34', '2', 'Y'), ('MO', None, '6', 'N')])
 def test_submission_native_fields_and_auth_before_send_marker(client, kind, price, trade_type, extended):

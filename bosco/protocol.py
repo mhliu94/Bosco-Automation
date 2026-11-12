@@ -90,7 +90,7 @@ class Connection:
         payload = self._take(size-4, deadline)
         return struct.unpack('<H', payload[:2])[0], payload[2:]
 
-    def connect(self):
+    def connect(self, *, reconnect=True):
         self.close()
         c = self.credentials
         try:
@@ -106,9 +106,10 @@ class Connection:
                 raise TransportError('Invalid broker handshake.')
             self.key = plain[40:72]
             self.socket.sendall(frame(31306, encrypt(self.key,plain)))
-            self.request('reconnect', {'terminal_type':'ANDROID'}, {
-                'app_version':'normal','client_version':c['app_version'],'org':'HMS',
-                'internet_expiry_time':c['internet_expiry_time']})
+            if reconnect:
+                self.request('reconnect', {'terminal_type':'ANDROID'}, {
+                    'app_version':'normal','client_version':c['app_version'],'org':'HMS',
+                    'internet_expiry_time':c['internet_expiry_time']})
         except (OSError, EOFError, ValueError) as exc:
             self.close()
             raise TransportError('Broker connection failed; no order was sent.') from None
@@ -124,8 +125,15 @@ class Connection:
         common = {'user_id':c['user_id'], 'password':' ', 'ae':c['account_number'],
                   'session':c['session'], 'language':'EN', 'mts':str(time.time_ns()//1000000)}
         common.update(fields or {})
+        extras = {'internet_session':c['internet_session'], **(extra or {})}
+        if tag == 'login':
+            # Native password login does not carry the old session, internet
+            # token or observation timestamp. Reconnect is a separate request.
+            common['session'] = ''
+            common.pop('mts')
+            extras.pop('internet_session', None)
         for key, value in common.items(): ET.SubElement(root,key).text = str(value)
-        ET.SubElement(root,'extra',{'internet_session':c['internet_session'],**(extra or {})})
+        ET.SubElement(root,'extra',extras)
         xml = ET.tostring(root,encoding='utf-8')
         data = frame(31307, encrypt(self.key,struct.pack('<IHI',len(xml)+10,51000,len(xml))+xml))
         try:

@@ -102,6 +102,22 @@ def test_handshake_reconnect_and_exact_response_matching(connected):
     assert response.tag == 'cash_response'
     assert 'heartbeat_ack' in peer.events
 
+def test_password_login_omits_expired_session_fields(connected):
+    connection,peer=connected
+    connection.request('login',{'password':'synthetic-secret','encoding':'UTF8','terminal_type':'ANDROID'},
+                       {'new_version':'1','os_version':'16'})
+    request=peer.requests[-1]
+    assert request.findtext('session')==''
+    assert request.find('mts') is None
+    assert 'internet_session' not in request.find('extra').attrib
+    assert request.findtext('password')=='synthetic-secret'
+
+def test_login_handshake_does_not_try_expired_reconnect(connected):
+    connection,peer=connected
+    peer.requests.clear()
+    connection.connect(reconnect=False)
+    assert peer.requests==[]
+
 
 def test_marker_precedes_only_one_send_when_ack_is_lost(connected):
     connection, peer = connected

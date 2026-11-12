@@ -31,3 +31,23 @@ The output directory receives **only `credentials.json`**. To also generate init
 Stop and remove the temporary Frida server after enrollment. Move credentials to the Linux credentials directory, and keep configuration and existing runtime state separately in the project. Keep those files private; renewed trading tokens are atomically written to `credentials.json`, so it must be writable by the service user. The exported reconnect session is not a promise of indefinite access: broker policy can revoke it at any time.
 
 After renewal, run `bosco session-check` and `bosco authenticate`, then restart the worker. Successful account reporting clears the old authentication-required marker.
+
+For an already enrolled device, explicit password renewal is also available while
+the worker is stopped:
+
+```bash
+sudo systemctl stop bosco-runner
+.venv/bin/python scripts/renew_session.py --config /path/to/config.json \
+  --password-file /private/path/passwords.txt --os-version 16
+.venv/bin/python -m bosco --config /path/to/config.json session-check
+.venv/bin/python -m bosco --config /path/to/config.json authenticate
+sudo systemctl start bosco-runner
+```
+
+Use the Android version of the enrolled phone. This uses `account_password` from
+the private file, preserves device/account identity, and refuses to replace
+credentials if the broker requires additional verification. It does not store the
+login password or send financial requests. If rejected, renew through the phone.
+Both deployed accounts passed native login, read-only cash/position reads, trading
+authentication and Kafka checks on 2026-11-12. The native login request omits the
+expired session metadata and includes UTF8 encoding and device/version fields.

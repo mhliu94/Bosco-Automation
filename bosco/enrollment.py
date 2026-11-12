@@ -63,3 +63,32 @@ def read_passwords(path):
             if k.strip() in ('account_password','trading_password'): values[k.strip()]=v.strip()
     if not values.get('trading_password'): raise ValueError('Password file needs trading_password=...')
     return values
+
+def renew_session(settings, account_password, os_version, *, connection_factory=None):
+    """Explicit session renewal while the worker is stopped; never submit orders."""
+    from .api import load_session
+    from .protocol import Connection
+    from .lock import OperationLock
+    if not account_password or not os_version:
+        raise ValueError('Account password and exported device OS version are required.')
+    with OperationLock(settings.work_dir/'runner.lock', 0):
+        state=load_session(settings.session_path)
+        if (state['account_id'],state.get('account_num_id')) != (settings.require('bosco.accountId'),settings.get('bosco.accountNumId')):
+            raise ValueError('Credentials do not match the configured account.')
+        connection=(connection_factory or Connection)(state)
+        try:
+            connection.connect(reconnect=False)
+            response=connection.request('login',
+                {'password':account_password,'terminal_type':'ANDROID','encoding':'UTF8','client_version':state['app_version']},
+                {'app_version':'normal','new_version':'1','os_version':str(os_version),'org':'HMS',
+                 'device_name':state['device_name'],'device_code':state['device_code']})
+            if response.findtext('user_id')!=state['user_id'] or response.findtext('default_account')!=state['account_number']:
+                raise ValueError('Login account differs from the exported account; credentials were not replaced.')
+            renewed={key:response.findtext(key) for key in ('session','internet_session','internet_expiry_time')}
+            if not all(renewed.values()):
+                raise ValueError('Broker login needs additional verification; credentials were not replaced.')
+            state.update(renewed)
+            state.pop('trade_session',None);state.pop('trade_expiry_time',None)
+            save_session(settings.session_path,state)
+            return {'account_id':state['account_id'],'session_renewed':True}
+        finally:connection.close()
