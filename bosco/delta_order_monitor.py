@@ -13,6 +13,10 @@ class DeltaOrderMonitor:
     def __init__(self, runner, producer):
         self.runner, self.producer = runner, producer
         self.api = ApiTrading(runner.settings)
+        # Reuse one serialized native connection; parallel reconnects can revoke
+        # the session used by the command/holdings client.
+        if runner.api_executor is not None:
+            self.api.client = runner.api_executor.client
         self.changes = OrderChanges()
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, name='bosco-order-poll', daemon=True)

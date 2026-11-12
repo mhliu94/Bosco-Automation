@@ -1,6 +1,8 @@
 DEFAULTS = {'paths': {'workDir': 'work', 'logDir': 'logs'},
  'logging': {'level': 'INFO'},
  'api': {'sessionPath': '',
+         'passwordFile': '',
+         'deviceOsVersion': '',
          'maxOrderPages': 100,
          'orderActionDelaySeconds': 5,
          'postOrderPublishDelaySeconds': 2,

@@ -54,7 +54,14 @@ The worker uses synchronous manual offset commits and defaults to committing fai
 }
 ```
 
-`cash` is the USD balance, not an FX-converted total. Each position has `symbol`, `qty`, `avg_price`, and available `marketPrice`, `marketValue`, `dailyPL`, `dailyPLPercent` fields. Daily P/L is omitted unless the BSL response includes enough data to calculate it. An order-read failure does not suppress an otherwise complete holdings report.
+`cash` is the actual USD ledger balance. `cash_by_currency` uses the native
+`currency` response's `balance` values, so other currencies represent additional
+cash holdings. The native `cash` response and `static_cash_by_rate` fields contain
+converted summaries and are not used as holdings. Broker currency codes are
+preserved. Each position has `symbol`, `qty`, `avg_price`, and available
+`marketPrice`, `marketValue`, `dailyPL`, `dailyPLPercent` fields. Daily P/L is omitted
+unless the BSL response includes enough data to calculate it. An order-read
+failure does not suppress an otherwise complete holdings report.
 
 Account-detail messages use the reference's empty string Kafka key. Producer delivery is acknowledged (`acks=all`, idempotent producer); failures do not cause financial-command replay.
 

@@ -16,7 +16,7 @@ Each response must match both operation and request message number. Heartbeats a
 | --- | --- | --- |
 | Reconnect | `reconnect` | Live success |
 | Trading unlock | `login_trade` | Live success using the separate trading password |
-| Cash | `cash` | Live success, three currency rows |
+| Cash holdings | `currency` | Verified per-currency ledger; `cash` is an FX-converted account summary, not independent currency holdings |
 | Positions | `holding_stock` | Live success, empty portfolio |
 | Today's orders | `today_order` | Live success, empty list |
 | Exact order/history fallback | `today_order`, `history_order` | Offline tests; history route inspected in app, no live history match |

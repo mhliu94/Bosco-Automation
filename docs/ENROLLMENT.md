@@ -51,3 +51,12 @@ login password or send financial requests. If rejected, renew through the phone.
 Both deployed accounts passed native login, read-only cash/position reads, trading
 authentication and Kafka checks on 2026-11-12. The native login request omits the
 expired session metadata and includes UTF8 encoding and device/version fields.
+
+## Optional unattended read-session renewal
+
+Set `api.passwordFile` to a private password file and `api.deviceOsVersion` to the
+enrolled Android version. Reads and authentication before dispatch can renew an
+expired login with a 60-second cooldown. The returned user/account identity is
+checked before credentials are replaced. Dispatched financial requests are never
+replayed by renewal. Commands, holdings, and order polling share a serialized
+native connection so concurrent reconnects do not compete for the session.

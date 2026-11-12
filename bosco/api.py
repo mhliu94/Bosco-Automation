@@ -4,6 +4,15 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import json
 import time
+import threading
+from functools import wraps
+
+def serialized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._connection_lock:
+            return method(self, *args, **kwargs)
+    return call
 
 from .protocol import (Connection, ApiResult, ApiError, SessionError,
                        AuthenticationRequired, TransportError)
@@ -24,6 +33,8 @@ def load_session(path):
 
 class ApiClient:
     def __init__(self, settings, *, connection_factory=Connection):
+        self._connection_lock=threading.RLock()
+        self._last_renewal_attempt=float("-inf")
         self.settings=settings
         self.state=load_session(settings.session_path)
         if self.state['account_id']!=settings.require('bosco.accountId'):
@@ -53,9 +64,49 @@ class ApiClient:
             self.connection.credentials=latest
             self.connection.connect()
 
+    def _renew_read_session(self):
+        # Only reads/pre-dispatch authentication may use this. A dispatched
+        # financial request is never replayed after a lost or rejected response.
+        from .lock import OperationLock
+        from .enrollment import read_passwords
+        password_file=self.settings.get('api.passwordFile')
+        os_version=self.settings.get('api.deviceOsVersion')
+        if not password_file or not os_version or time.monotonic()-self._last_renewal_attempt<60:
+            raise AuthenticationRequired('Session renewal needs private login configuration or cooldown.')
+        self._last_renewal_attempt=time.monotonic()
+        with OperationLock(self.settings.work_dir/'api/session-renewal.lock',30):
+            latest=load_session(self.settings.session_path)
+            if any(latest.get(k)!=self.state.get(k) for k in ('user_id','account_number','account_id','account_num_id')):
+                raise SessionError('Credential account changed during renewal.')
+            changed=latest.get('session')!=self.state.get('session')
+            self.state=latest;self.connection.credentials=latest
+            if changed:
+                self.connection.connect()
+                return
+            password=read_passwords(self.settings.resolve_path(password_file)).get('account_password')
+            if not password:raise AuthenticationRequired('Private account password is unavailable.')
+            self.connection.connect(reconnect=False)
+            response=self.connection.request('login',
+                {'password':password,'terminal_type':'ANDROID','encoding':'UTF8','client_version':latest['app_version']},
+                {'app_version':'normal','new_version':'1','os_version':str(os_version),'org':'HMS',
+                 'device_name':latest['device_name'],'device_code':latest['device_code']})
+            if response.findtext('user_id')!=latest['user_id'] or response.findtext('default_account')!=latest['account_number']:
+                raise AuthenticationRequired('Login returned a different account; renewal rejected.')
+            renewed={k:response.findtext(k) for k in ('session','internet_session','internet_expiry_time')}
+            if not all(renewed.values()):raise AuthenticationRequired('Login requires additional verification.')
+            latest.update(renewed)
+            latest.pop('trade_session',None);latest.pop('trade_expiry_time',None)
+            save_session(self.settings.session_path,latest)
+            self.state=latest;self.connection.credentials=latest
+
+    @serialized
     def _request(self, tag, fields=None, extra=None, attributes=None):
-        self._ensure()
-        return self.connection.request(tag,fields,extra,attributes)
+        try:
+            self._ensure()
+            return self.connection.request(tag,fields,extra,attributes)
+        except AuthenticationRequired:
+            self._renew_read_session()
+            return self.connection.request(tag,fields,extra,attributes)
 
     def _rows(self, tag, fields=None, extra=None):
         result=[]
@@ -108,7 +159,9 @@ class ApiClient:
             data={'account_channel':context['account_channel'],'account':{'account_no':self.state['account_number']},
                   'stockhold':{'holdings':[p for p in positions if p is not None]}}
         elif endpoint=='cash':
-            rows=self._rows('cash',{'market_code':''},{'force_data_fetch':'Y'})
+            # `cash` returns whole-account totals translated into each display
+            # currency. `currency` is the actual per-currency cash ledger.
+            rows=self._rows('currency',{'market_code':''},{'force_data_fetch':'Y'})
             data={'account_channel':context['account_channel'],'account_no':self.state['account_number'],
                   'cash_balance':[{'currency':r['ccy_code'],'balance':str(numeric(r['balance'],'cash balance'))} for r in rows]}
         elif endpoint=='orders':
@@ -141,6 +194,7 @@ class ApiClient:
         else: raise ValueError('Unsupported BSL read operation.')
         return ApiResult(endpoint,200,0,0,'',{'data':data})
 
+    @serialized
     def authenticate_trade(self):
         self._ensure()
         password=self.settings.get('bosco.tradePassword') or self.state.get('trade_password')
@@ -161,9 +215,14 @@ class ApiClient:
         if not self.state.get('trade_session') or expires-time.time()<60:
             self.authenticate_trade()
 
+    @serialized
     def write(self, operation, body, *, before_send):
         if operation not in ('submit','withdraw'): raise ValueError('Unsupported BSL write operation.')
-        self._trade_ready()
+        try:
+            self._trade_ready()
+        except AuthenticationRequired:
+            self._renew_read_session()
+            self._trade_ready()
         extra={'trade_session':self.state['trade_session'],'terminal_type':'ANDROID'}
         if operation=='submit':
             parts=body['counter_id'].split('/')

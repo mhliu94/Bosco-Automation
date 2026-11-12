@@ -95,6 +95,56 @@ def test_explicit_session_renewal_validates_identity_and_does_not_store_login_pa
     assert json.loads(raw)['session']=='renewed'
     connection.close.assert_called_once()
 
+def test_cash_uses_actual_currency_ledgers_instead_of_converted_account_totals(client):
+    client.connection.pages['currency']=[rows_response([
+        {'ccy_code':'USD','balance':'100.00','static_cash_by_rate':'109.70'},
+        {'ccy_code':'HKD','balance':'50.00','static_cash_by_rate':'855.66'},
+        {'ccy_code':'CNY','balance':'25.00','static_cash_by_rate':'750.00'}])]
+    client.connection.pages['cash']=[rows_response([
+        {'ccy_code':'USD','balance':'109.70'},{'ccy_code':'HKD','balance':'855.66'}])]
+    data=client.read('cash').payload['data']
+    assert data['cash_balance']==[{'currency':'USD','balance':'100.00'},
+        {'currency':'HKD','balance':'50.00'},{'currency':'CNY','balance':'25.00'}]
+    assert [call[0] for call in client.connection.calls]==['currency']
+
+def test_cash_missing_actual_balance_cannot_fall_back_to_converted_value(client):
+    client.connection.pages['currency']=[rows_response([{'ccy_code':'HKD','static_cash_by_rate':'780'}])]
+    with pytest.raises(KeyError):client.read('cash')
+
+def test_read_authentication_renews_once_without_replaying_writes(client, monkeypatch, tmp_path):
+    from unittest.mock import Mock
+    password=tmp_path/'passwords.txt'
+    password.write_text('account_password=synthetic-login-secret\ntrading_password=synthetic-trade\n')
+    client.settings.data['api'].update(passwordFile=str(password),deviceOsVersion='16')
+    client.connection.connect=Mock()
+    response=ET.fromstring('<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account>'
+        '<session>new-session</session><internet_session>new-internet</internet_session>'
+        '<internet_expiry_time>2099/01/01 00:00:00</internet_expiry_time></login_response>')
+    expected=ET.Element('query_response')
+    client.connection.request=Mock(side_effect=[AuthenticationRequired('expired'),response,expected])
+    assert client._request('query_account') is expected
+    assert [call.args[0] for call in client.connection.request.call_args_list]==['query_account','login','query_account']
+    assert 'synthetic-login-secret' not in client.settings.session_path.read_text()
+    assert json.loads(client.settings.session_path.read_text())['session']=='new-session'
+    # A failed financial response is propagated; only pre-dispatch authentication
+    # may renew. The request cannot be sent a second time.
+    monkeypatch.setattr(client,'_trade_ready',lambda:None)
+    client.state['trade_session']='synthetic-trade-session'
+    client.connection.request=Mock(side_effect=AuthenticationRequired('expired after send'))
+    with pytest.raises(AuthenticationRequired):
+        client.write('submit',{'counter_id':'ST/US/TEST','action':'1','order_type':'LO','quantity':'1','price':'2'},before_send=lambda:None)
+    assert client.connection.request.call_count==1
+
+def test_read_renewal_rejects_wrong_identity_without_overwriting_session(client, tmp_path):
+    from unittest.mock import Mock
+    password=tmp_path/'passwords.txt';password.write_text('account_password=synthetic-login\ntrading_password=synthetic-trade\n')
+    client.settings.data['api'].update(passwordFile=str(password),deviceOsVersion='16')
+    before=client.settings.session_path.read_bytes()
+    client.connection.connect=Mock()
+    client.connection.request=Mock(side_effect=[AuthenticationRequired('expired'),ET.fromstring('<login_response><user_id>OTHER</user_id></login_response>')])
+    with pytest.raises(AuthenticationRequired):client._request('query_account')
+    assert client.settings.session_path.read_bytes()==before
+
 @pytest.mark.parametrize('response',[
     '<login_response><user_id>OTHER</user_id><default_account>TEST-A</default_account></login_response>',
     '<login_response><user_id>TEST</user_id><default_account>TEST-A</default_account></login_response>',
@@ -168,14 +218,14 @@ def test_exact_id_history_fallback_does_not_match_similar_symbol(client):
 
 
 def test_paginated_snapshot_requires_completeness_and_no_duplicates(client):
-    client.connection.pages['cash'] = [rows_response([{'ccy_code':'USD','balance':'1'}], 2),
+    client.connection.pages['currency'] = [rows_response([{'ccy_code':'USD','balance':'1'}], 2),
                                      rows_response([{'ccy_code':'HKD','balance':'2'}], 2)]
     assert len(client.read('cash').payload['data']['cash_balance']) == 2
     assert client.connection.calls[-1][3]['begin'] == '1'
-    client.connection.pages['cash'] = [rows_response([{'ccy_code':'USD','balance':'1'}], 2)]
+    client.connection.pages['currency'] = [rows_response([{'ccy_code':'USD','balance':'1'}], 2)]
     with pytest.raises(ValueError, match='repeated'):
         client.read('cash')
-    client.connection.pages['cash'] = [rows_response([], 2)]
+    client.connection.pages['currency'] = [rows_response([], 2)]
     with pytest.raises(ValueError, match='incomplete'):
         client.read('cash')
 
