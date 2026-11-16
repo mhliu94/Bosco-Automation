@@ -2,7 +2,9 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import hashlib
 import json
+import logging
 import time
 import threading
 from functools import wraps
@@ -165,7 +167,26 @@ class ApiClient:
         rows=self._rows(tag,fields,extra)
         for row in rows:
             if row.get('order_id'): self.raw_orders[row['order_id']]=row
-        return [order(row,self.account_context(),self.settings.get('api.brokerTimezone','Asia/Hong_Kong')) for row in rows]
+        normalized = [order(row,self.account_context(),self.settings.get('api.brokerTimezone','Asia/Hong_Kong')) for row in rows]
+        for ticket in normalized:
+            native = ticket['native']
+            total = native.get('total_fee') if native.get('total_fee') is not None else native.get('total_fees')
+            if total in (None, '') or numeric(ticket['executed_qty'], 'executed quantity') <= 0:
+                continue
+            # Share only exact broker totals with the reporting process. Use
+            # the trading worker's existing connection for the order read.
+            receipt = {k:ticket[k] for k in ('id','submitted_at','executed_qty','counter_id')}
+            receipt.update(total_fees=str(total), currency=native.get('fee_currency') or native.get('ccy'))
+            directory = self.settings.work_dir / 'api' / 'fee-receipts'
+            name = hashlib.sha256(ticket['id'].encode()).hexdigest()+'.json'
+            try:
+                directory.mkdir(mode=0o700,parents=True,exist_ok=True)
+                path = directory/name
+                if not path.exists() or json.loads(path.read_text()) != receipt:
+                    save_session(path, receipt)
+            except (OSError, ValueError):
+                logging.getLogger('bosco').warning('Could not persist broker fee receipt for %s',ticket['id'])
+        return normalized
 
     def read(self, endpoint, params=None):
         params=params or {}

@@ -408,3 +408,17 @@ def test_position_values_require_native_fields_and_zero_rows_are_ignored():
     ('2026-11-27T18:00:00+00:00',None), ('2026-06-01T13:30:00+00:00','regular')])
 def test_calendar_holidays_dst_and_early_close(stamp, expected):
     assert market_session(datetime.fromisoformat(stamp)) == expected
+
+
+def test_native_fee_receipt_tracks_cumulative_fills_and_reported_zero(client):
+    row = native_order()
+    row.update(filled_qty="3", total_fee="0", fee_currency="USD")
+    client.connection.pages["today_order"] = [rows_response([row])]
+    client._orders()
+    path, = (client.settings.work_dir / "api" / "fee-receipts").glob("*.json")
+    assert json.loads(path.read_text())["total_fees"] == "0"
+    row.update(filled_qty="10", total_fee="1.25")
+    client.connection.pages["today_order"] = [rows_response([row])]
+    client._orders()
+    receipt = json.loads(path.read_text())
+    assert (receipt["id"],receipt["executed_qty"],receipt["total_fees"],receipt["currency"]) == (row["order_id"],"10","1.25","USD")
