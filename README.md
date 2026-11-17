@@ -11,7 +11,7 @@ This implementation targets the native protocol inspected in BSL Android `com.ts
 | Market buy/sell | Native US whole-share market order during the regular session |
 | Extended-hours market command | Converts to a DAY limit order using the opposite side of Kafka `price-books`, as in the reference |
 | Limit buy/sell | Native DAY limit order; buy prices round up to cents, sell prices round down |
-| `LIMIT_ORDER_FOK` | Synthetic limit, wait, then cancel the remainder; partial fills are possible, exactly as in the reference workflow |
+| `LIMIT_ORDER_IOC` | Synthetic limit, wait, then cancel the remainder; partial fills are possible, exactly as in the reference workflow |
 | Cancel all | Reads open orders, cancels each by its exact native order ID, then confirms terminal status |
 | Trading enable/disable | Durable Kafka-controlled state; cancellations remain available when disabled |
 | Account reporting | Cash by currency and positions at startup, periodically, and after order commands |
@@ -113,3 +113,5 @@ If the broker revokes/expires the reconnect session, the worker stops intake and
 Tests use synthetic credentials and in-memory broker/Kafka doubles. They include encrypted handshake/framing, request matching, authentication before a durable send marker, lost replies, exact-ID cancellation, pagination, calendar boundaries, no-replay recovery, holdings, and KTrader status schemas. The [initial worker's CI run](https://github.com/mhliu94/Bosco-Automation/actions/runs/42946552571) passed on Linux and Windows: 158 tests and 96 subtests per platform.
 
 See [docs/KAFKA.md](docs/KAFKA.md) for messages and [NOTICE.md](NOTICE.md) for source attribution. The source archive excludes account credentials, captured broker traffic, APK/decompiled app files, reference checkout, and the development virtual environment.
+
+KTrader and Nextgen use `LIMIT_ORDER_IOC` with `time_in_force: IOC` for a limit followed by cancellation of its remaining shares. Partial fills count. The listener also accepts the previous `LIMIT_ORDER_FOK` spelling for retained commands.
