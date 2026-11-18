@@ -28,6 +28,20 @@ def native_order(**changes):
         order_time='2026/11/10 23:00:00', ccy='USD', **changes)
 
 
+def test_exchange_cancels_eight_remaining_shares_without_overwriting_order_time():
+    from bosco.mapping import order as map_order
+    raw = native_order()
+    raw.update(order_status="42", filled_qty="92", order_qty="100", order_date="2026/11/19",
+                       order_time="00:19:52", create_time="2026/11/19 00:20:12", update_time="2026/11/19 00:20:12",
+                       avg_price="44.880600", outstanding_qty="0", last_order_action_code="ExchangeCancel")
+    actual = map_order(raw, {})
+    assert actual["status"] == "PartialWithdrawal"
+    assert actual["executed_qty"] == "92"
+    assert float(actual["updated_at"]) - float(actual["submitted_at"]) == 20
+    assert map_order(dict(raw, outstanding_qty="8"), {})["status"] == "UNKNOWN"
+    assert map_order(dict(raw, last_order_action_code=""), {})["status"] == "UNKNOWN"
+
+
 def rows_response(rows, total=None):
     root = ET.Element('response', all_count=str(len(rows) if total is None else total))
     records = ET.SubElement(root, 'records')

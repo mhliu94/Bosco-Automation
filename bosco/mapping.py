@@ -51,6 +51,18 @@ def order(row, context, zone='Asia/Hong_Kong'):
     side = row.get('order_side')
     if side not in ('1','2'): raise ValueError('Unsupported broker order side.')
     status = STATUS.get(row.get('order_status'),'UNKNOWN')
+    # Code 42 alone is ambiguous. The exchange action and zero outstanding
+    # balance confirm that the partially filled ticket has been cancelled.
+    if (row.get("order_status") == "42" and row.get("last_order_action_code") == "ExchangeCancel"
+            and 0 < filled < quantity and row.get("outstanding_qty") not in (None, "")
+            and numeric(row["outstanding_qty"], "outstanding quantity") == 0):
+        status = "PartialWithdrawal"
+    order_date = row.get("order_date") or row.get("orderdate")
+    order_time = row.get("order_time")
+    if order_time and (order_date or len(str(order_time)) > 8):
+        submitted_at = broker_time(order_time, order_date, zone)
+    else:
+        submitted_at = broker_time(row.get("create_time"), order_date, zone)
     if status=='CanceledStatus' and filled>0: status='PartialWithdrawal'
     result = {**context,'id':identifier,'order_id_str':identifier,
         'counter_id':f'ST/{market}/{row["stock_code"]}', 'action':side,
@@ -58,7 +70,7 @@ def order(row, context, zone='Asia/Hong_Kong'):
         'quantity':str(quantity),'executed_qty':str(filled),
         'executed_price':row.get('avg_price') or row.get('filled_price') or None,
         'price':row.get('order_price'), 'status':status,
-        'submitted_at':broker_time(row.get('create_time') or row.get('order_time'),row.get('order_date') or row.get('orderdate'),zone),
+        'submitted_at':submitted_at,
         'currency':row.get('ccy') or ('USD' if market=='US' else 'HKD'),
         'time_in_force':row.get('order_validity') or '0',
         'native':row,
