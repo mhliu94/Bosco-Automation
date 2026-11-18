@@ -140,6 +140,8 @@ def holdings_snapshot(holdings: dict, settings: Settings, trading_enabled: bool)
         "account_num_id": settings.get("bosco.accountNumId"),
         "cash": cash or 0.0,
         "cash_by_currency": cash_by_currency,
+        "available_cash_by_currency": {"USD": cash_by_currency["USD"]} if "USD" in cash_by_currency else {},
+        "cash_basis": "Bosco USD cash capped by max_buy",
         "positions": positions,
         "ts": timestamp,
         "trading_enabled": trading_enabled,

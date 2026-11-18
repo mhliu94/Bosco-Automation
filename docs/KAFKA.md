@@ -54,11 +54,11 @@ The worker uses synchronous manual offset commits and defaults to committing fai
 }
 ```
 
-`cash` is the actual USD ledger balance. `cash_by_currency` uses the native
-`currency` response's `balance` values, so other currencies represent additional
-cash holdings. The native `cash` response and `static_cash_by_rate` fields contain
-converted summaries and are not used as holdings. Broker currency codes are
-preserved. Each position has `symbol`, `qty`, `avg_price`, and available
+The worker publishes available U.S. trading cash in `cash`, `cash_by_currency.USD`
+and `available_cash_by_currency.USD`. It reads the native USD `currency` row and caps
+`max_buy` at trade-date cash. When the broker reports frozen funds, the cash cap
+also uses the ledger plus today's net trades less that hold. Other currency entries
+use their native ledger balances. Each position has `symbol`, `qty`, `avg_price`, and available
 `marketPrice`, `marketValue`, `dailyPL`, `dailyPLPercent` fields. Daily P/L is omitted
 unless the BSL response includes enough data to calculate it. An order-read
 failure does not suppress an otherwise complete holdings report.

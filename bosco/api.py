@@ -33,6 +33,24 @@ def load_session(path):
     if state.get('schema_version')!=1: raise SessionError('Unsupported credentials schema.')
     return state
 
+def currency_cash(row):
+    if row['ccy_code'] != 'USD':
+        return numeric(row['balance'], 'cash balance')
+    # The USD row is native cash. The separate cash endpoint translates all currencies.
+    cash = numeric(row['cash'], 'USD trade-date cash')
+    limit = numeric(row['max_buy'], 'US market buy limit')
+    # Cap the broker's buying limit at cash principal, including today's trades.
+    # Apply holds to gross principal only, never subtract them from the net buy limit.
+    frozen = max(numeric(row['sum_frozen_bal'], 'USD frozen total'),
+                 numeric(row['frozen_bal'], 'USD frozen balance'))
+    if frozen < 0:
+        raise ValueError('Invalid USD frozen cash.')
+    if frozen:
+        gross = numeric(row['balance'], 'USD ledger balance') + numeric(row['today_trade_net_amt'], 'USD net trades')
+        cash = min(cash, gross - frozen)
+    return min(cash, limit)
+
+
 class ApiClient:
     def __init__(self, settings, *, connection_factory=Connection):
         self._connection_lock=threading.RLock()
@@ -208,7 +226,7 @@ class ApiClient:
             # currency. `currency` is the actual per-currency cash ledger.
             rows=self._rows('currency',{'market_code':''},{'force_data_fetch':'Y'})
             data={'account_channel':context['account_channel'],'account_no':self.state['account_number'],
-                  'cash_balance':[{'currency':r['ccy_code'],'balance':str(numeric(r['balance'],'cash balance'))} for r in rows]}
+                  'cash_balance':[{'currency':r['ccy_code'],'balance':str(currency_cash(r))} for r in rows]}
         elif endpoint=='orders':
             # Fetch the complete native list once. The workflow's adapter page is complete.
             if params.get('page',1)!=1: raise ValueError('Unexpected normalized order page.')
