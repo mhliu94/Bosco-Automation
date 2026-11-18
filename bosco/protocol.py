@@ -3,6 +3,7 @@
 Read-only enrollment verified on 2026-11-10. No Android runtime is involved.
 The fixed IV and PKCS1v15 padding reproduce the broker's wire protocol.
 """
+from bosco import latency
 from dataclasses import dataclass, field
 import re
 import secrets
@@ -122,6 +123,7 @@ class Connection:
             self.close()
             raise
 
+    @latency.timed("broker_request", "request", arg=1)
     def request(self, tag, fields=None, extra=None, attributes=None, before_send=None):
         if self.socket is None: raise TransportError('Broker is disconnected.')
         c = self.credentials

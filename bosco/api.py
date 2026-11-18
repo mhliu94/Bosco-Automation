@@ -138,6 +138,13 @@ class ApiClient:
             records=root.find('records')
             if records is None: raise ValueError('Broker omitted the records container.')
             rows=[dict(row.attrib) for row in records if row.tag=='row']
+            # Never page through unrelated historical tickets if the broker
+            # ignores the exact order_id supplied with a detail lookup.
+            if tag == 'history_order' and extra and extra.get('order_id'):
+                matches = [row for row in rows if row.get('order_id') == extra['order_id']]
+                if len(matches) > 1:
+                    raise ValueError('Broker returned duplicate exact order IDs.')
+                return matches
             try: expected=int(root.attrib['all_count'])
             except (KeyError,ValueError): raise ValueError('Broker omitted the complete record count.') from None
             if expected<0 or (total is not None and total!=expected):

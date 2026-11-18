@@ -436,3 +436,11 @@ def test_native_fee_receipt_tracks_cumulative_fills_and_reported_zero(client):
     client._orders()
     receipt = json.loads(path.read_text())
     assert (receipt["id"],receipt["executed_qty"],receipt["total_fees"],receipt["currency"]) == (row["order_id"],"10","1.25","USD")
+
+def test_exact_history_lookup_does_not_page_an_unfiltered_response(client):
+    unrelated = native_order()
+    unrelated["order_id"] = "other"
+    client.connection.pages["history_order"] = [rows_response([unrelated], total=200)]
+    assert client._orders(history=True, identifier="requested") == []
+    history = [call for call in client.connection.calls if call[0] == "history_order"]
+    assert len(history) == 1 and history[0][2]["order_id"] == "requested"
