@@ -66,7 +66,19 @@ class OrderPollingState:
             return
         previous = self.data["snapshots"].get(identifier)
         if previous and previous["created_at"] != snapshot["created_at"]:
-            raise ValueError("Order creation time changed during polling.")
+            # Bosco detail can return the terminal transition time as submitted_at.
+            # Preserve the first published creation time for the same immutable ticket.
+            identity = ("account_id", "order_id", "symbol", "side", "order_type", "quantity", "limit_price")
+            if (snapshot["status"] not in TERMINAL_STATUSES
+                    or any(previous.get(k) != snapshot.get(k) for k in identity)
+                    or timestamp(snapshot["created_at"]) < timestamp(previous["created_at"])
+                    or timestamp(snapshot["updated_at"]) < timestamp(previous["updated_at"])
+                    or (previous.get("command_id") and snapshot.get("command_id")
+                        and previous["command_id"] != snapshot["command_id"])):
+                raise ValueError("Order creation time changed during polling.")
+            snapshot = dict(snapshot, created_at=previous["created_at"])
+            if previous.get("command_id"):
+                snapshot.setdefault("command_id", previous["command_id"])
         if previous is None or state_fields(previous) != state_fields(snapshot):
             self.data["snapshots"][identifier] = snapshot
         if self.terminal(identifier):

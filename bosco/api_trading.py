@@ -201,7 +201,9 @@ class ApiTrading:
         records = list(self.journal.records())
         commands = {record["order_id"]: record["command_id"] for record in records
                     if record.get("order_id") and record.get("intent")}
-        for record in records:
+        errors = 0
+        # Restore original submission observations before later cancel observations.
+        for record in sorted(records, key=lambda item: not item.get("intent")):
             snapshot = record.get("order_snapshot")
             if snapshot and not tracking.terminal(snapshot["order_id"]):
                 if snapshot["order_id"] not in tracking.data["snapshots"] or snapshot["status"] in {
@@ -209,13 +211,17 @@ class ApiTrading:
                     snapshot = dict(snapshot)
                     if commands.get(snapshot["order_id"]):
                         snapshot["command_id"] = commands[snapshot["order_id"]]
-                    tracking.observe(snapshot)
+                    try:
+                        tracking.observe(snapshot)
+                    except (ValueError, TypeError, KeyError) as error:
+                        errors += 1
+                        LOG.error("Journal order snapshot deferred order_id=%s: %s", snapshot["order_id"], error)
             elif (record.get("order_id") and record.get("sent_at")
                   and record.get("result", {}).get("status") not in TERMINAL
                   and record.get("broker_status") not in TERMINAL):
                 tracking.track(record["order_id"], record["sent_at"])
         tracking.save()
-        errors, seen = 0, set()
+        seen = set()
         try:
             rows = self._orders()
         except (ApiError, TransportError, ValueError) as error:

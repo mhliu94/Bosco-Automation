@@ -29,6 +29,25 @@ class OrderPollingTests(unittest.TestCase):
     def detail_reads(self):
         return [call for call in self.broker.calls if call[1] == "order_detail"]
 
+    def test_cancel_detail_timestamp_does_not_block_another_fill(self):
+        now = datetime.now(timezone.utc)
+        created = (now - timedelta(seconds=10)).isoformat()
+        first = order_snapshot(broker_order("11", submitted_at=created), self.settings,
+                               observed_at=now, command_id="sell-11")
+        cancel = dict(first, created_at=now.isoformat(), updated_at=now.isoformat(), status="CANCELED")
+        second = order_snapshot(broker_order("12", status="FilledStatus", executed_qty="2",
+                                             executed_price="2.3"), self.settings, observed_at=now)
+        records = [{"order_id": "11", "command_id": "cancel:11", "order_snapshot": cancel},
+                   {"order_id": "11", "command_id": "sell-11", "intent": True, "order_snapshot": first},
+                   {"order_id": "12", "command_id": "sell-12", "intent": True, "order_snapshot": second}]
+        with patch.object(self.api.journal, "records", return_value=records):
+            result = self.api.poll_order_status()
+        rows = {row["order_id"]: row for row in result["orders"]}
+        self.assertEqual(result["orderStatusErrors"], 0)
+        self.assertEqual((rows["11"]["status"], rows["11"]["created_at"], rows["11"]["command_id"]),
+                         ("CANCELED", first["created_at"], "sell-11"))
+        self.assertEqual(rows["12"]["status"], "FILLED")
+
     def test_terminal_receipts_seed_hundreds_of_retired_orders_without_polling_them(self):
         now = datetime.now(timezone.utc)
         snapshots = [order_snapshot(broker_order(str(1000 + index), status="FilledStatus", executed_qty="2",
