@@ -187,7 +187,7 @@ class ApiClient:
         if history:
             tag='history_order'
             now=datetime.now(ZoneInfo('Asia/Hong_Kong'))
-            fields.update(begin_date=(now-timedelta(days=30)).strftime('%Y%m%d'),end_date=now.strftime('%Y%m%d'))
+            fields.update(begin_date=(now-timedelta(days=30)).strftime('%Y/%m/%d'),end_date=now.strftime('%Y/%m/%d'))
             if identifier: extra['order_id']=identifier
         rows=self._rows(tag,fields,extra)
         for row in rows:

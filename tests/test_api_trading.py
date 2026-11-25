@@ -337,15 +337,39 @@ class TradingTests(unittest.TestCase):
                 self.assertEqual(result["pricing"]["priceSource"], "broker_market_execution")
         self.price_books.price.assert_not_called()
 
-    def test_subcent_sell_is_rejected_before_submit(self):
+    def test_sub_dollar_limits_preserve_price_through_submission_and_reconciliation(self):
+        for side, requested, effective in (
+            ("Buy", "0.1238", "0.1238"),
+            ("Sell", "0.0099", "0.0099"),
+            ("Buy", "0.999900", "0.9999"),
+            ("Sell", "0.0001", "0.0001"),
+        ):
+            for kill in (False, True):
+                with self.subTest(side=side, price=requested, kill=kill):
+                    key = f"sub-dollar-{side}-{requested}-{kill}"
+                    command_context.set(key)
+                    result = self.api.limit_order("BIYA", requested, "2", side, kill=kill)
+                    self.assertTrue(result["submitted"])
+                    self.assertEqual(self.broker.writes("submit")[-1][2]["price"], effective)
+                    record = self.api.journal.read(key)
+                    self.assertEqual(record["request"]["price"], effective)
+                    self.assertEqual(record["phase"], "finished")
+
+    def test_extended_market_limit_preserves_sub_dollar_book_price(self):
         self.broker.market_status = 201
         self.price_books.price.return_value = BookPrice("0.0099", time.time_ns(), "200", 1)
-        for price in (None, "0.0099"):
-            with self.subTest(price=price), self.assertRaisesRegex(ValueError, "rounds down to zero"):
-                if price is None:
-                    self.api.market_order("BIYA", "2", "Sell")
-                else:
-                    self.api.limit_order("BIYA", price, "2", "Sell")
+        result = self.api.market_order("BIYA", "2", "Sell")
+        self.assertEqual(self.broker.writes("submit")[-1][2]["price"], "0.0099")
+        self.assertEqual(result["pricing"]["submittedPrice"], "0.0099")
+
+    def test_off_tick_sub_dollar_price_is_rejected_before_submit(self):
+        self.broker.market_status = 201
+        self.price_books.price.return_value = BookPrice("0.00999", time.time_ns(), "200", 1)
+        with self.assertRaisesRegex(ValueError, r"multiple of \$0\.0001"):
+            self.api.market_order("BIYA", "2", "Sell")
+        for side, price in (("Sell", "0.00001"), ("Buy", "0.12385")):
+            with self.subTest(side=side, price=price), self.assertRaisesRegex(ValueError, r"multiple of \$0\.0001"):
+                self.api.limit_order("BIYA", price, "2", side)
         self.assertEqual(self.broker.writes(), [])
         self.assertEqual(list(self.api.journal.records()), [])
 
