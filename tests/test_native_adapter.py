@@ -259,7 +259,12 @@ def test_exact_id_history_fallback_does_not_match_similar_symbol(client):
     client.connection.pages['history_order'] = [rows_response([right])]
     result = client.read('order_detail', {'order_id_str': right['order_id']})
     assert result.payload['data']['order']['id'] == right['order_id']
-    assert client.connection.calls[-1][2]['order_id'] == right['order_id']
+    tag, fields, extra, _ = client.connection.calls[-1]
+    assert tag == 'history_order'
+    assert extra['order_id'] == right['order_id']
+    start = datetime.strptime(fields['begin_date'], '%Y/%m/%d')
+    end = datetime.strptime(fields['end_date'], '%Y/%m/%d')
+    assert (end - start).days == 30
 
 
 def test_paginated_snapshot_requires_completeness_and_no_duplicates(client):

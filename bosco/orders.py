@@ -1,4 +1,4 @@
-"""Shared command validation; prices follow Gigamoney's directional cent rounding."""
+"""Shared command validation for Bosco US equity orders."""
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, localcontext
 import re
 import logging
@@ -34,13 +34,16 @@ class OrderAutomation:
         requested = cls.positive_number(value, name)
         parsed = Decimal(requested)
         side = cls.normalize_side(side)
+        if parsed < 1:
+            tick_price = parsed.quantize(Decimal('.0001'))
+            if tick_price != parsed:
+                raise ValueError(f'{name} below $1 must be a multiple of $0.0001.')
+            return requested if parsed.as_tuple().exponent >= -4 else format(tick_price, 'f')
         if parsed.as_tuple().exponent >= -2:
             return requested
         with localcontext() as ctx:
             ctx.prec = max(ctx.prec, len(parsed.as_tuple().digits) + 2)
             rounded = parsed.quantize(Decimal('.01'), rounding=ROUND_CEILING if side == 'Buy' else ROUND_FLOOR)
-        if rounded <= 0:
-            raise ValueError('Sell price rounds down to zero.')
         effective = format(rounded, 'f')
         logging.getLogger('bosco').info('Order price rounded command_id=%s field=%s side=%s requested=%s effective=%s.',
                                       command_context.get(), name, side, requested, effective)
