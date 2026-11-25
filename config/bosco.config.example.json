@@ -20,6 +20,7 @@
     "maxResponseBytes": 4194304,
     "readAttempts": 2,
     "readRetryDelaySeconds": 0.25,
+    "cancelRetryAfterSeconds": 30,
     "cancelPollDelaysSeconds": [
       0,
       1,

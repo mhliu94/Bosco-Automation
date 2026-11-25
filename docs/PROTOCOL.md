@@ -43,7 +43,14 @@ BSL has no verified echoed client request ID or server idempotency key. Local co
 
 For an unresolved send, stop the runner and preserve `state/api/orders/` and the broker's order evidence. Establish whether an order exists, its exact ID, and its ticket from the broker before reconciling the journal. Do not delete the journal, retry with a new command ID, or infer identity from symbol/time alone. No automatic guess or automatic resubmission is implemented.
 
-Cancel acknowledgment alone is not success. A cancellation is sent at most once per durable marker, followed by exact-ID status checks. If still unconfirmed, it remains unresolved; it is never blindly repeated. There is no claim of distributed exactly-once execution across broker/Kafka/disk.
+The worker confirms cancellations by reading the exact ticket on a fresh
+connection. Startup and periodic recovery revisit unfinished exact-ticket
+cancellation records. After an acknowledged cancellation, the worker can retry
+once after `api.cancelRetryAfterSeconds` (default 30 seconds) if the same
+ticket still has an open quantity and a working status without a pending
+cancel action. It saves a second dispatch marker before that write. Lost
+acknowledgments and older records without ticket identity receive read-only
+confirmation. Broker terminal feedback releases the reservation.
 
 ## Verified environment
 

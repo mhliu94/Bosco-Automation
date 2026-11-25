@@ -10,7 +10,8 @@ from pathlib import Path
 import time
 import uuid
 
-from .api import ApiClient, ApiError, SessionError, TransportError, save_session
+from .api import (ApiClient, ApiError, AuthenticationRequired, SessionError, TransportError,
+                  cancel_ticket_identity, still_working_after_cancel, save_session)
 from .diagnostics import command_context, error_detail, logged_workflow, workflow_attempt, workflow_retry, workflow_step
 from .lock import OperationLock
 from .orders import OrderAutomation
@@ -514,20 +515,39 @@ class ApiTrading:
             raise OrderUncertain("Acknowledged order does not match the intended ticket.", submitted=True)
         return row
 
-    def _cancel_one(self, identifier, record, key):
+    def _cancel_one(self, identifier, record, key, *, recovering=False):
         workflow_step("confirm_cancel", orderId=identifier)
         row = self._detail(identifier)
+        identity = record.get("cancel_identity")
+        if identity is not None and cancel_ticket_identity(row) != identity:
+            raise OrderUncertain("Broker ticket identity changed during cancellation recovery")
         if row["status"] in TERMINAL:
             return row
-        if not record.get("cancel_sent_at"):
+        acknowledged = record.get("cancel_acknowledged_at")
+        retry = (key == "cancel:" + identifier and acknowledged is not None
+                 and not record.get("cancel_retry_sent_at")
+                 and time.time() - acknowledged >= self.settings.get("api.cancelRetryAfterSeconds", 30)
+                 and still_working_after_cancel(row, record.get("cancel_identity")))
+        if not record.get("cancel_sent_at") or retry:
             body = {**self.client.account_context(), "order_id": identifier, "order_id_str": identifier}
+            if retry:
+                body["retry_identity"] = record["cancel_identity"]
             def sent():
-                record["cancel_sent_at"] = time.time()
+                if retry:
+                    record["cancel_retry_sent_at"] = time.time()
+                else:
+                    record["cancel_sent_at"] = time.time()
+                    record["cancel_identity"] = cancel_ticket_identity(row)
                 self.journal.save(key, record)
             try:
                 self.client.write("withdraw", body, before_send=sent)
+                if not retry:
+                    record["cancel_acknowledged_at"] = time.time()
+                    self.journal.save(key, record)
             except (ApiError, SessionError):
                 workflow_retry("Cancel response was not confirmed; checking its order status")
+        elif recovering:
+            return row
         # A cancel acknowledgment is not a terminal status. Never treat absence of a
         # Cancel button or a timeout as successful cancellation.
         for delay in self.settings.get("api.cancelPollDelaysSeconds", [0, 1, 1, 2]):
@@ -633,6 +653,27 @@ class ApiTrading:
             records = list(self.journal.records())
         recovered = 0
         for record in records:
+            if (record.get("phase") == "cancel" and record.get("cancel_sent_at")
+                    and record["command_id"] == "cancel:" + str(record.get("order_id"))):
+                key = record["command_id"]
+                with self._lock():
+                    current = self.journal.read(key)
+                    if current["phase"] != "cancel":
+                        continue
+                    try:
+                        row = self._cancel_one(current["order_id"], current, key, recovering=True)
+                    except AuthenticationRequired:
+                        raise
+                    except (OrderUncertain, ApiError, SessionError, ValueError) as error:
+                        LOG.warning("Exact cancellation confirmation deferred order_id=%s error_type=%s",
+                                    current["order_id"], type(error).__name__)
+                        continue
+                    if row["status"] in TERMINAL:
+                        self._remember_order(current, row)
+                        current.update(phase="finished", status=row["status"])
+                        self.journal.save(key, current)
+                        recovered += 1
+                continue
             if not record.get("sent_at") or record.get("phase") in {"finished", "rejected"}:
                 continue
             intent = record["intent"]

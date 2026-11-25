@@ -51,6 +51,19 @@ def currency_cash(row):
     return min(cash, limit)
 
 
+def cancel_ticket_identity(row):
+    return {k:row[k] for k in ('id','counter_id','submitted_at','action','quantity','price','order_type')}
+
+
+def still_working_after_cancel(row, identity):
+    native = row.get('native', {})
+    return (identity == cancel_ticket_identity(row)
+            and row['status'] in ('NewStatus','PartialFilledStatus')
+            and native.get('order_status') in ('1','2')
+            and native.get('cr_action_code') == ''
+            and numeric(native.get('outstanding_qty'), 'outstanding quantity') > 0)
+
+
 class ApiClient:
     def __init__(self, settings, *, connection_factory=Connection):
         self._connection_lock=threading.RLock()
@@ -303,7 +316,10 @@ class ApiClient:
             return {'order_id_str':identifier}
         identifier=body['order_id_str']
         # Refresh before cancel so all fields belong to this exact account/order.
-        row=self.read('order_detail',{'order_id_str':identifier}).payload['data']['order']['native']
+        detail=self.read('order_detail',{'order_id_str':identifier}).payload['data']['order']
+        if 'retry_identity' in body and not still_working_after_cancel(detail, body['retry_identity']):
+            return {'order_id_str':identifier, 'skipped':True}
+        row=detail['native']
         # The read can renew the login and invalidate the earlier trading token.
         # Authenticate again before the cancellation's durable dispatch marker.
         self._trade_ready()
@@ -312,6 +328,9 @@ class ApiClient:
         fields.update(order_id=identifier,terminal_type='ANDROID',ccy_code=row.get('ccy','USD'))
         extra.update({k:row[k] for k in ('extended_trading','order_txn_reference','orderdate','sys_date','consign_id','orderGroupID') if row.get(k)})
         self.connection.request('cancel_order',fields,extra,before_send=before_send)
+        # Read confirmation on a fresh connection. Native order notifications can
+        # already be buffered on the write socket after the acknowledgment.
+        self.connection.close()
         return {'order_id_str':identifier}
 
 TradingApiClient=ApiClient

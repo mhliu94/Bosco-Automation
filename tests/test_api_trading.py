@@ -150,6 +150,42 @@ class TradingTests(unittest.TestCase):
             self.api.cancel_order("missing")
         self.assertEqual(self.broker.writes(), [])
 
+    def test_restart_retries_only_acknowledged_exact_still_working_cancel_once(self):
+        self.broker.orders = {"11": broker_order("11", native={"order_status":"1", "cr_action_code":"",
+                                                              "outstanding_qty":"2"}), "12": broker_order("12")}
+        self.broker.cancel_status = "NewStatus"
+        with self.assertRaises(OrderUncertain):
+            self.api.cancel_order("11")
+        restarted = ApiTrading(self.settings, client=self.broker, sleeper=self.sleeps.append)
+        restarted.recover_pending()
+        self.assertEqual(len(self.broker.writes("withdraw")), 1)
+        with patch("bosco.api_trading.time.time", return_value=time.time()+60):
+            for field, changed in (("cr_action_code", "Cancel"), ("outstanding_qty", "0")):
+                with patch.dict(self.broker.orders["11"]["native"], {field:changed}):
+                    restarted.recover_pending()
+            with patch.dict(self.broker.orders["11"], {"submitted_at":"different"}):
+                restarted.recover_pending()
+            self.assertEqual(len(self.broker.writes("withdraw")), 1)
+            restarted.recover_pending()
+            restarted.recover_pending()
+        sends = self.broker.writes("withdraw")
+        self.assertEqual([call[2]["order_id_str"] for call in sends], ["11", "11"])
+        self.broker.orders["11"]["status"] = "CanceledStatus"
+        self.assertEqual(restarted.recover_pending()["recovered"], 1)
+        self.assertEqual(restarted.journal.read("cancel:11")["status"], "CanceledStatus")
+        self.assertEqual(self.broker.orders["12"]["status"], "NewStatus")
+
+    def test_recovery_only_reads_when_cancel_acknowledgement_was_lost(self):
+        self.broker.orders = {"11": broker_order("11", native={"order_status":"1", "cr_action_code":"",
+                                                               "outstanding_qty":"2"})}
+        self.broker.withdraw_error = TransportError("lost reply")
+        self.broker.cancel_status = "NewStatus"
+        with self.assertRaises(OrderUncertain):
+            self.api.cancel_order("11")
+        with patch("bosco.api_trading.time.time", return_value=time.time()+3600):
+            self.api.recover_pending()
+        self.assertEqual(len(self.broker.writes("withdraw")), 1)
+
     def test_staging_buy_sell_market_limit_and_fok_never_writes(self):
         for side in ("Buy", "Sell"):
             self.assertFalse(self.api.market_order("BIYA", "2", side, no_submit=True)["submitted"])
