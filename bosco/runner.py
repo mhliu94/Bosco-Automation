@@ -305,6 +305,26 @@ class TradingRunner:
 
         return self.order_publisher.publish(snapshots, deliver)
 
+    def _refuse_without_submission(self, producer, command, command_id, plan, reason):
+        """Close a valid order handoff durably even when intake refuses to execute it."""
+        if self.backend != "api" or plan.kind not in {"market", "limit"}:
+            return
+        try:
+            rejection = self._operation("reject", {
+                "command_id": command_id, "arguments": plan.arguments,
+                "reason": reason, "created_at": command.get("ts"),
+            })
+        except ValueError:
+            # A reused ID must not overwrite evidence for a different/possibly accepted order.
+            LOG.error("Command refusal could not be correlated command_id=%s; existing evidence preserved.", command_id)
+            return
+        if rejection is not None:
+            try:
+                self._publish_orders(producer, [rejection])
+            except Exception as error:
+                LOG.error("Command rejection publication deferred command_id=%s error_type=%s; durable rejection retained.",
+                          command_id, type(error).__name__)
+
     def run(self) -> None:
         # Prevent two runners from consuming and overwriting the same account state.
         with OperationLock(self.settings.work_dir / "runner.lock", 0):
@@ -518,6 +538,10 @@ class TradingRunner:
                     latency.received(command, message, received_ms)
                     if command_is_stale(command, maximum_age):
                         command_outcome, command_reason = "ignored", "stale"
+                        plan = command_plan(command)
+                        command_stage = "persist_refusal"
+                        self._refuse_without_submission(producer, command, command_id, plan,
+                                                        "Command expired before execution")
                         command_stage = "commit"
                         consumer.commit(message=message, asynchronous=False)
                         committed = True
@@ -533,6 +557,9 @@ class TradingRunner:
                                  command_id, trading_enabled)
                     elif plan.kind != "cancel" and not trading_enabled:
                         command_outcome, command_reason = "ignored", "trading_disabled"
+                        command_stage = "persist_refusal"
+                        self._refuse_without_submission(producer, command, command_id, plan,
+                                                        "Trading was disabled before execution")
                     else:
                         command_stage = "execute"
                         LOG.info("Executing %s command_id=%s.", plan.name, command_id)
@@ -555,6 +582,8 @@ class TradingRunner:
                     consumer.commit(message=message, asynchronous=False)
                     committed = True
                 except Exception as error:
+                    if command_stage == "persist_refusal":
+                        raise
                     if getattr(error, "submitted", False) or (
                         self.backend == "api" and isinstance(error, OrderUncertain)
                     ) or (

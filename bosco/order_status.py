@@ -148,6 +148,11 @@ def rejection_snapshot(intent, settings, *, command_id, created_at, rejected_at,
     return result
 
 
+def deliverable_on(snapshot, day, zone):
+    return (timestamp(snapshot["created_at"]).astimezone(zone).date() == day or
+            (snapshot["status"] == "REJECTED" and snapshot["order_id"].startswith("local-rejection:")))
+
+
 class OrderStatusPublisher:
     """Persist pending snapshots before send, and published snapshots after ACK.
 
@@ -222,7 +227,7 @@ class OrderStatusPublisher:
                 try:
                     if snapshot["account_id"] != self.account:
                         raise ValueError("Order publication account mismatch.")
-                    if timestamp(snapshot["created_at"]).astimezone(self.zone).date() != today:
+                    if not deliverable_on(snapshot, today, self.zone):
                         continue
                     identifier = snapshot["order_id"]
                     record = self._read(identifier)
@@ -261,7 +266,7 @@ class OrderStatusPublisher:
                         raise ValueError("Order publication record filename mismatch.")
                     record = self._read(saved["order_id"])
                     pending = record["pending"]
-                    if pending is not None and timestamp(pending["created_at"]).astimezone(self.zone).date() == today:
+                    if pending is not None and deliverable_on(pending, today, self.zone):
                         self._deliver(record, deliver)
                         sent += 1
                 except Exception as error:
