@@ -125,3 +125,11 @@ their difference in milliseconds. `command_execution`, `broker_request` and
 `elapsed_ms`. A short hash of the command ID links related events. Broker
 timestamps retain their original precision. Pickup comparisons across hosts
 include any difference between their clocks.
+
+### Order feedback during bursts
+
+The native API monitor wakes on a completed command and can publish the broker-confirmed
+journal snapshot ahead of its next poll. A late receipt preserves newer status and fills.
+Unchanged journal files reuse their decoded records. Other-account Kafka checkpoints are
+coalesced per partition during bursts. Commands for this account keep synchronous commits.
+Broker session renewal and its cooldown continue to serialize access to the native connection.
