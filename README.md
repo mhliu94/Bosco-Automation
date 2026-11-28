@@ -14,7 +14,7 @@ This implementation targets the native protocol inspected in BSL Android `com.ts
 | `LIMIT_ORDER_IOC` | Synthetic limit, wait, then cancel the remainder; partial fills are possible, exactly as in the reference workflow |
 | Cancel all | Reads open orders, cancels each by its exact native order ID, then confirms terminal status |
 | Trading enable/disable | Durable Kafka-controlled state; cancellations remain available when disabled |
-| Account reporting | Cash by currency and positions at startup, periodically, and after order commands |
+| Account reporting | Cash and positions at startup and every 30 seconds, plus position deltas on fills |
 | Order reporting | KTrader v1 snapshots, current New York trading date, durable sequence/outbox and duplicate suppression |
 | Recovery | Account lock, durable pre-send journal, command-ID deduplication, exact-order reconciliation; financial writes are never automatically replayed |
 | CLI/service | Read commands, order previews, standalone order commands, runner control, and systemd user-unit generation |
@@ -91,7 +91,7 @@ The generator uses the current Python executable and config's absolute Linux pat
 | `paths.workDir` | `../work/bosco-wjy/state` |
 | `paths.logDir` | `../logs/bosco-wjy` |
 
-Default pre-action delay is 0 seconds and remains configurable through `api.orderActionDelaySeconds`; the other timings are 2 seconds before post-order reporting, 2 seconds before a synthetic FOK cancellation, 30-second holdings interval, and 300-second maximum command age. Read failures receive at most two attempts. Price-book snapshots expire after 300 seconds. `automation.maxCancelCount` defaults to 50 per cancel-all call.
+Default pre-action delay is 0 seconds and remains configurable through `api.orderActionDelaySeconds`; the other timings are 2 seconds before a synthetic FOK cancellation, 30-second holdings interval, and 300-second maximum command age. Read failures receive at most two attempts. Price-book snapshots expire after 300 seconds. `automation.maxCancelCount` defaults to 50 per cancel-all call.
 
 `api.positionCost` chooses `diluted` (`cost_price`) or `average` (`avg_price`). Native daily P/L fields are optional; see the protocol notes. `api.brokerTimezone` defaults to `Asia/Hong_Kong` for native timestamps; `api.orderTimezone` is `America/New_York` for the daily reporting boundary.
 

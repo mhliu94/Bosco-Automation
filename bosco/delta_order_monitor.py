@@ -4,7 +4,6 @@ import threading
 import time
 from .api import AuthenticationRequired, SessionRenewalDeferred
 from .api_trading import ApiTrading
-from .account_delta import OrderChanges
 
 LOG = logging.getLogger('bosco')
 
@@ -17,7 +16,6 @@ class DeltaOrderMonitor:
         # the session used by the command/holdings client.
         if runner.api_executor is not None:
             self.api.client = runner.api_executor.client
-        self.changes = OrderChanges()
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, name='bosco-order-poll', daemon=True)
 
@@ -29,8 +27,6 @@ class DeltaOrderMonitor:
             started = time.monotonic()
             try:
                 result = self.api.poll_order_status()
-                if self.changes.observe(result['orders']):
-                    self.runner.request_holdings_refresh()
                 self.runner._publish_orders(self.producer, result['orders'])
             except SessionRenewalDeferred as error:
                 LOG.warning('Broker session renewal deferred retry_after_s=%.1f; monitoring will resume.',error.retry_after)

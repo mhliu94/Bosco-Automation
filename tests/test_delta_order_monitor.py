@@ -4,7 +4,7 @@ from unittest.mock import Mock
 from bosco.delta_order_monitor import DeltaOrderMonitor
 import bosco.delta_order_monitor as module
 
-def test_partial_fill_wakes_holdings_before_delivery_and_retries_transient_read(monkeypatch):
+def test_order_observations_reach_projection_without_holdings_reads(monkeypatch):
     runner = Mock(settings={}, running=True, stop_path=Path('nonexistent-stop-file'))
     api = Mock()
     api.poll_order_status.side_effect = [
@@ -24,7 +24,8 @@ def test_partial_fill_wakes_holdings_before_delivery_and_retries_transient_read(
     runner.request_holdings_refresh.side_effect = lambda: ordered.append('assets')
     runner._publish_orders.side_effect = lambda *args: ordered.append('orders')
     monitor.run()
-    assert ordered == ['assets', 'orders', 'assets', 'orders', 'orders']
+    assert ordered == ['orders', 'orders', 'orders']
+    runner.request_holdings_refresh.assert_not_called()
     assert len(waits) == 4 and all(.05 <= delay <= 1 for delay in waits)
 
 def test_session_cooldown_keeps_monitor_alive_and_recovers(monkeypatch):
