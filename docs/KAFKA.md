@@ -1,6 +1,6 @@
 # KTrader Kafka interface
 
-The worker preserves the reference project's topic names, JSON contracts, command routing, manual commits, and post-order reporting. WJY routes by string `account_id: "BOSCO-WJY"`; reports also include numeric `account_num_id: 29`.
+The worker preserves the reference project's topic names, JSON contracts, command routing, manual commits, and sequenced account reporting. WJY routes by string `account_id: "BOSCO-WJY"`; reports also include numeric `account_num_id: 29`.
 
 | Topic | Direction | Role |
 | --- | --- | --- |
